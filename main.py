@@ -54,6 +54,9 @@ class BA_PVP_Tool(Star):
             # 启动监控任务
             self.monitoring_task = asyncio.create_task(self.start_monitoring())
             logger.info("BA PVP Tool: 监控任务已启动")
+            
+            # 发送启动消息
+            await self.send_startup_message()
         except Exception as e:
             logger.error(f"BA PVP Tool 异步初始化失败: {str(e)}")
 
@@ -153,13 +156,28 @@ class BA_PVP_Tool(Star):
             logger.error(f"检查排名变化时发生异常: {str(e)}")
             return None
 
-    async def send_initialization_message(self, ranking: int, full_data: Dict[str, Any]):
-        """发送插件初始化成功消息"""
+    async def send_startup_message(self):
+        """发送插件启动消息"""
         try:
-            # 构建初始化消息
-            message = f"🎮 BA竞技场监控插件启动成功！\n"
+            # 首先尝试获取当前排名
+            current_data = await self.fetch_arena_data()
+            current_ranking = None
+            if current_data and 'data' in current_data:
+                current_ranking = current_data['data'].get('arenaRanking')
+            
+            # 构建启动消息
+            message = f"🎮 BA竞技场监控插件已启动！\n"
             message += f"服务器: {self.server}\n"
-            message += f"当前排名: {ranking}\n"
+            
+            if current_ranking is not None:
+                message += f"当前排名: {current_ranking}\n"
+                if self.last_arena_ranking is not None:
+                    message += f"上次记录: {self.last_arena_ranking}\n"
+                else:
+                    message += f"首次运行，已记录当前排名\n"
+            else:
+                message += f"暂时无法获取排名数据\n"
+                
             message += f"监控频率: 每5分钟检查一次\n"
             message += f"如有排名变化将及时通知您"
             
@@ -175,12 +193,42 @@ class BA_PVP_Tool(Star):
             
             success = await self.context.send_message(unified_msg_origin, message_chain)
             if success:
-                logger.info(f"成功发送初始化消息到 {self.notice_id}")
+                logger.info(f"成功发送启动消息到 {self.notice_id}")
             else:
-                logger.error(f"发送初始化消息失败，可能找不到对应的消息平台")
+                logger.error(f"发送启动消息失败，可能找不到对应的消息平台")
                 
         except Exception as e:
-            logger.error(f"发送初始化消息时发生异常: {str(e)}")
+            logger.error(f"发送启动消息时发生异常: {str(e)}")
+
+    async def send_initialization_message(self, ranking: int, full_data: Dict[str, Any]):
+        """发送插件初始化成功消息（首次运行时）"""
+        try:
+            # 构建初始化消息
+            message = f"� BA竞技场监控插件首次运行！\n"
+            message += f"服务器: {self.server}\n"
+            message += f"当前排名: {ranking}\n"
+            message += f"已设置为监控基准排名\n"
+            message += f"监控频率: 每5分钟检查一次\n"
+            message += f"如有排名变化将及时通知您"
+            
+            # 构建会话标识 - 使用aiocqhttp平台的私聊格式
+            unified_msg_origin = f"aiocqhttp:FRIEND_MESSAGE:{self.notice_id}"
+            
+            # 发送消息
+            from astrbot.api.event import MessageChain
+            import astrbot.api.message_components as Comp
+            
+            message_chain = MessageChain()
+            message_chain.chain = [Comp.Plain(message)]
+            
+            success = await self.context.send_message(unified_msg_origin, message_chain)
+            if success:
+                logger.info(f"成功发送首次运行消息到 {self.notice_id}")
+            else:
+                logger.error(f"发送首次运行消息失败，可能找不到对应的消息平台")
+                
+        except Exception as e:
+            logger.error(f"发送首次运行消息时发生异常: {str(e)}")
 
     async def send_notification(self, change_info: Dict[str, Any]):
         """发送排名变化通知"""
