@@ -74,7 +74,6 @@ class BA_PVP_Tool(Star):
                 ) as response:
                     if response.status == 200:
                         data = await response.json()
-                        logger.info(f"成功获取BA竞技场数据: {data}")
                         return data
                     else:
                         logger.error(f"获取BA竞技场数据失败，状态码: {response.status}")
@@ -165,7 +164,7 @@ class BA_PVP_Tool(Star):
             message += f"如有排名变化将及时通知您"
             
             # 构建会话标识 - 使用aiocqhttp平台的私聊格式
-            unified_msg_origin = f"aiocqhttp:private:{self.notice_id}"
+            unified_msg_origin = f"aiocqhttp:FRIEND_MESSAGE:{self.notice_id}"
             
             # 发送消息
             from astrbot.api.event import MessageChain
@@ -205,7 +204,7 @@ class BA_PVP_Tool(Star):
             
             # 构建会话标识
             # 使用aiocqhttp平台的私聊格式
-            unified_msg_origin = f"aiocqhttp:private:{self.notice_id}"
+            unified_msg_origin = f"aiocqhttp:FRIEND_MESSAGE:{self.notice_id}"
             
             # 发送消息
             from astrbot.api.event import MessageChain
