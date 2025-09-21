@@ -15,7 +15,7 @@ class BA_PVP_Tool(Star):
         self.config = config
         
         # 存储每个用户的监控信息
-        # 格式: {unified_msg_origin: {server, friend_code, last_ranking, task}}
+        # 格式: {unified_msg_origin: {server, friend_code, last_ranking, nickname, task}}
         self.user_monitors = {}
         self.data_file = "data/ba_pvp_monitors.json"
         
@@ -52,6 +52,7 @@ class BA_PVP_Tool(Star):
                             'server': monitor_info['server'],
                             'friend_code': monitor_info['friend_code'],
                             'last_ranking': monitor_info.get('last_ranking'),
+                            'nickname': monitor_info.get('nickname', ''),
                             'task': None  # 任务会在需要时重新创建
                         }
                     logger.info(f"加载了 {len(self.user_monitors)} 个监控配置")
@@ -68,6 +69,7 @@ class BA_PVP_Tool(Star):
                     'server': monitor_info['server'],
                     'friend_code': monitor_info['friend_code'],
                     'last_ranking': monitor_info.get('last_ranking'),
+                    'nickname': monitor_info.get('nickname', ''),
                     'last_update': asyncio.get_event_loop().time()
                 }
             
@@ -120,6 +122,7 @@ class BA_PVP_Tool(Star):
                 return
             
             current_ranking = data['data'].get('arenaRanking')
+            nickname = data['data'].get('nickname', '')
             if current_ranking is None:
                 yield event.plain_result(" 获取的数据中没有竞技场排名信息")
                 return
@@ -129,6 +132,7 @@ class BA_PVP_Tool(Star):
                 'server': server,
                 'friend_code': friend_code,
                 'last_ranking': current_ranking,
+                'nickname': nickname,
                 'task': None
             }
             
@@ -140,6 +144,7 @@ class BA_PVP_Tool(Star):
             await self.save_monitors_data()
             
             success_msg = f" BA竞技场监控已启动！\n"
+            success_msg += f"玩家: {nickname}\n"
             success_msg += f"服务器: {server}\n"
             success_msg += f"当前排名: {current_ranking}\n"
             success_msg += f"监控频率: 每5分钟检查一次\n"
@@ -193,6 +198,7 @@ class BA_PVP_Tool(Star):
         is_running = monitor_info['task'] and not monitor_info['task'].done()
         
         status_msg = f" BA竞技场监控状态:\n"
+        status_msg += f"玩家: {monitor_info.get('nickname', '未知')}\n"
         status_msg += f"服务器: {monitor_info['server']}\n"
         status_msg += f"好友码: {monitor_info['friend_code']}\n"
         status_msg += f"上次排名: {monitor_info['last_ranking'] if monitor_info['last_ranking'] else '暂无'}\n"
@@ -245,6 +251,7 @@ class BA_PVP_Tool(Star):
                     continue
                 
                 current_ranking = current_data['data'].get('arenaRanking')
+                current_nickname = current_data['data'].get('nickname', '')
                 if current_ranking is None:
                     logger.warning(f"用户 {umo} 获取的数据中没有arenaRanking字段")
                     await asyncio.sleep(300)
@@ -252,11 +259,12 @@ class BA_PVP_Tool(Star):
                 
                 # 检查排名变化
                 if last_ranking is not None and current_ranking != last_ranking:
-                    # 发送变化通知
-                    await self.send_ranking_change_notification(umo, last_ranking, current_ranking, server)
+                    # 发送变化通知，传递用户名和用户消息源
+                    await self.send_ranking_change_notification(umo, last_ranking, current_ranking, server, current_nickname)
                 
-                # 更新排名
+                # 更新排名和用户名
                 self.user_monitors[umo]['last_ranking'] = current_ranking
+                self.user_monitors[umo]['nickname'] = current_nickname
                 await self.save_monitors_data()
                 
                 logger.info(f"用户 {umo} 排名检查完成: {current_ranking}")
@@ -271,7 +279,7 @@ class BA_PVP_Tool(Star):
                 logger.error(f"用户 {umo} 监控任务执行异常: {str(e)}")
                 await asyncio.sleep(60)  # 出错时等待1分钟
 
-    async def send_ranking_change_notification(self, umo: str, old_ranking: int, new_ranking: int, server: str):
+    async def send_ranking_change_notification(self, umo: str, old_ranking: int, new_ranking: int, server: str, nickname: str = ''):
         """发送排名变化通知"""
         try:
             # 构建通知消息
@@ -282,17 +290,32 @@ class BA_PVP_Tool(Star):
                 emoji = ""
                 change_text = "下降"
             
-            message = f"{emoji} BA竞技场排名变化通知\n"
-            message += f"服务器: {server}\n"
-            message += f"排名{change_text}: {old_ranking}  {new_ranking}\n"
-            message += f"变化: {abs(new_ranking - old_ranking)} 位"
+            # 从unified_msg_origin解析用户信息来进行@操作
+            user_id = None
+            if ':' in umo:
+                parts = umo.split(':')
+                if len(parts) >= 3:
+                    user_id = parts[-1]  # 通常用户ID在最后一部分
             
             # 发送消息到原会话
             from astrbot.api.event import MessageChain
             import astrbot.api.message_components as Comp
             
             message_chain = MessageChain()
-            message_chain.chain = [Comp.Plain(message)]
+            
+            # 如果有用户ID，先@用户
+            if user_id:
+                message_chain.chain.append(Comp.At(user_id))
+                message_chain.chain.append(Comp.Plain(" "))
+            
+            # 构建通知内容
+            message = f"{emoji} BA竞技场排名变化通知\n"
+            if nickname:
+                message += f"玩家: {nickname}\n"
+            message += f"服务器: {server}\n"
+            message += f"排名{change_text}: {old_ranking} -> {new_ranking}\n"
+            
+            message_chain.chain.append(Comp.Plain(message))
             
             success = await self.context.send_message(umo, message_chain)
             if success:
