@@ -1,0 +1,20 @@
+{
+    "notice_id": {
+        "description": "要通知的QQ号",
+        "type": "string",
+        "hint": "",
+        "default": ""
+    },
+    "server": {
+      "description": "服务器",
+      "type": "string",
+      "hint": "可选TW,NA,AS,KR,GL",
+      "default": "TW"
+    },
+    "friend_code": {
+      "description": "好友码",
+      "type": "string",
+      "hint": "用户游戏在线时才会更新数据",
+      "default": ""
+    }
+}
