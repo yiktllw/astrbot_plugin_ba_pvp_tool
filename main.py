@@ -9,39 +9,53 @@ from typing import Dict, Any, Optional
 
 @register("ba_pvp_tool", "yiktllw", "BA竞技场排名监控插件", "1.0.0")
 class BA_PVP_Tool(Star):
-    def __init__(self, context: Context):
+    def __init__(self, context: Context, config: AstrBotConfig = None):
         super().__init__(context)
         self.context = context
+        self.config = config
         self.notice_id = ""
         self.server = "TW"
         self.friend_code = ""
         self.last_arena_ranking = None
         self.monitoring_task = None
         self.data_file = "data/ba_pvp_data.json"
+        
+        # 初始化插件
+        asyncio.create_task(self.async_init())
 
-    async def initialize(self, context: Context, config: AstrBotConfig):
-        """插件初始化方法"""
-        self.context = context
-        self.notice_id = config.get("notice_id", "").strip()
-        self.server = config.get("server", "TW").strip()
-        self.friend_code = config.get("friend_code", "").strip()
-        
-        logger.info(f"BA PVP Tool 初始化: notice_id={self.notice_id}, server={self.server}, friend_code={self.friend_code}")
-        
-        # 检查必要配置是否为空
-        if not self.notice_id or not self.friend_code:
-            logger.warning("BA PVP Tool: notice_id 或 friend_code 为空，插件不会启动监控功能")
-            return
-        
-        # 确保data目录存在
-        os.makedirs("data", exist_ok=True)
-        
-        # 加载上次保存的数据
-        await self.load_last_data()
-        
-        # 启动监控任务
-        self.monitoring_task = asyncio.create_task(self.start_monitoring())
-        logger.info("BA PVP Tool: 监控任务已启动")
+    async def async_init(self):
+        """异步初始化方法"""
+        try:
+            # 获取配置
+            if self.config:
+                self.notice_id = self.config.get("notice_id", "").strip()
+                self.server = self.config.get("server", "TW").strip()
+                self.friend_code = self.config.get("friend_code", "").strip()
+            else:
+                # 如果config为None，从context获取配置
+                config = self.context.get_config()
+                self.notice_id = config.get("notice_id", "").strip()
+                self.server = config.get("server", "TW").strip()
+                self.friend_code = config.get("friend_code", "").strip()
+            
+            logger.info(f"BA PVP Tool 初始化: notice_id={self.notice_id}, server={self.server}, friend_code={self.friend_code}")
+            
+            # 检查必要配置是否为空
+            if not self.notice_id or not self.friend_code:
+                logger.warning("BA PVP Tool: notice_id 或 friend_code 为空，插件不会启动监控功能")
+                return
+            
+            # 确保data目录存在
+            os.makedirs("data", exist_ok=True)
+            
+            # 加载上次保存的数据
+            await self.load_last_data()
+            
+            # 启动监控任务
+            self.monitoring_task = asyncio.create_task(self.start_monitoring())
+            logger.info("BA PVP Tool: 监控任务已启动")
+        except Exception as e:
+            logger.error(f"BA PVP Tool 异步初始化失败: {str(e)}")
 
     async def fetch_arena_data(self) -> Optional[Dict[str, Any]]:
         """获取竞技场数据"""
@@ -107,11 +121,14 @@ class BA_PVP_Tool(Star):
                 logger.warning("获取的数据中没有arenaRanking字段")
                 return None
             
-            # 如果是第一次运行，保存当前数据
+            # 如果是第一次运行，保存当前数据并发送初始化消息
             if self.last_arena_ranking is None:
                 self.last_arena_ranking = current_ranking
                 await self.save_data(current_ranking)
                 logger.info(f"首次运行，保存初始排名: {current_ranking}")
+                
+                # 发送初始化成功消息
+                await self.send_initialization_message(current_ranking, current_data)
                 return None
             
             # 检查排名是否发生变化
@@ -136,6 +153,35 @@ class BA_PVP_Tool(Star):
         except Exception as e:
             logger.error(f"检查排名变化时发生异常: {str(e)}")
             return None
+
+    async def send_initialization_message(self, ranking: int, full_data: Dict[str, Any]):
+        """发送插件初始化成功消息"""
+        try:
+            # 构建初始化消息
+            message = f"🎮 BA竞技场监控插件启动成功！\n"
+            message += f"服务器: {self.server}\n"
+            message += f"当前排名: {ranking}\n"
+            message += f"监控频率: 每5分钟检查一次\n"
+            message += f"如有排名变化将及时通知您"
+            
+            # 构建会话标识 - 使用aiocqhttp平台的私聊格式
+            unified_msg_origin = f"aiocqhttp:private:{self.notice_id}"
+            
+            # 发送消息
+            from astrbot.api.event import MessageChain
+            import astrbot.api.message_components as Comp
+            
+            message_chain = MessageChain()
+            message_chain.chain = [Comp.Plain(message)]
+            
+            success = await self.context.send_message(unified_msg_origin, message_chain)
+            if success:
+                logger.info(f"成功发送初始化消息到 {self.notice_id}")
+            else:
+                logger.error(f"发送初始化消息失败，可能找不到对应的消息平台")
+                
+        except Exception as e:
+            logger.error(f"发送初始化消息时发生异常: {str(e)}")
 
     async def send_notification(self, change_info: Dict[str, Any]):
         """发送排名变化通知"""
